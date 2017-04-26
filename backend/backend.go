@@ -3,13 +3,13 @@ package backend
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/bosun-monitor/annotate"
+	"golang.org/x/net/context"
+	elastic "gopkg.in/olivere/elastic.v5"
 	"io"
 	"reflect"
 	"strings"
 	"time"
-
-	"github.com/bosun-monitor/annotate"
-	elastic "gopkg.in/olivere/elastic.v3"
 )
 
 type Backend interface {
@@ -43,7 +43,7 @@ func (e *Elastic) InsertAnnotation(a *annotate.Annotation) error {
 	if !e.initialized {
 		return unInitErr
 	}
-	_, err := e.Index().Index(e.index).BodyJson(a).Id(a.Id).Type(docType).Do()
+	_, err := e.Index().Index(e.index).BodyJson(a).Id(a.Id).Type(docType).Do(context.Background())
 	return err
 }
 
@@ -55,7 +55,7 @@ func (e *Elastic) GetAnnotation(id string) (*annotate.Annotation, bool, error) {
 	if id == "" {
 		return &a, false, fmt.Errorf("must provide id")
 	}
-	res, err := e.Get().Index(e.index).Type(docType).Id(id).Do()
+	res, err := e.Get().Index(e.index).Type(docType).Id(id).Do(context.Background())
 	// Ewwww...
 	if err != nil && strings.Contains(err.Error(), "Error 404") {
 		return &a, false, nil
@@ -73,7 +73,7 @@ func (e *Elastic) DeleteAnnotation(id string) error {
 	if !e.initialized {
 		return unInitErr
 	}
-	_, err := e.Delete().Index(e.index).Type(docType).Id(id).Do()
+	_, err := e.Delete().Index(e.index).Type(docType).Id(id).Do(context.Background())
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func (e *Elastic) GetAnnotations(start, end *time.Time, fieldFilters ...FieldFil
 	var aType annotate.Annotation
 	scroll := e.Scroll(e.index).Query(elastic.NewBoolQuery().Must(filters...)).Size(e.maxResults).Pretty(true)
 	for {
-		res, err := scroll.Do()
+		res, err := scroll.Do(context.Background())
 		if err == io.EOF {
 			break
 		}
@@ -157,7 +157,7 @@ func (e *Elastic) GetFieldValues(field string) ([]string, error) {
 		return terms, fmt.Errorf("invalid field %v", field)
 	}
 	termsAgg := elastic.NewTermsAggregation().Field(field)
-	res, err := e.Search(e.index).Aggregation(field, termsAgg).Size(e.maxResults).Do()
+	res, err := e.Search(e.index).Aggregation(field, termsAgg).Size(e.maxResults).Do(context.Background())
 	if err != nil {
 		return terms, err
 	}
@@ -189,12 +189,12 @@ func (e *Elastic) InitBackend() error {
 		return err
 	}
 	e.Client = ec
-	exists, err := e.IndexExists(e.index).Do()
+	exists, err := e.IndexExists(e.index).Do(context.Background())
 	if err != nil {
 		return err
 	}
 	if !exists {
-		res, err := e.CreateIndex(e.index).Do()
+		res, err := e.CreateIndex(e.index).Do(context.Background())
 		if (res != nil && !res.Acknowledged) || err != nil {
 			return fmt.Errorf("failed to create elastic mapping (ack: %v): %v", res != nil && res.Acknowledged, err)
 		}
@@ -222,7 +222,7 @@ func (e *Elastic) InitBackend() error {
 	mapping := make(map[string]interface{})
 	mapping["properties"] = p
 	q := e.PutMapping().Index(e.index).Type(docType).BodyJson(mapping)
-	res, err := q.Do()
+	res, err := q.Do(context.Background())
 	if (res != nil && !res.Acknowledged) || err != nil {
 		return fmt.Errorf("failed to create elastic mapping (ack: %v): %v", res != nil && res.Acknowledged, err)
 	}
